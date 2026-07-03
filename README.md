@@ -121,6 +121,35 @@ Each route contains its MIDI endpoint, channel and CC, target device aliases, pa
 
 Keep **Allow index fallback if name is missing** disabled unless name matching is impossible. Native parameter order can change between devices or Live versions.
 
+## Button mappings
+
+Ableton Device Mapper can map MIDI buttons to native Ableton parameters such as Device On, switches, toggles, sync modes, and other on/off controls. Choose **Button** as the control type, then select a mode:
+
+### Momentary
+
+The parameter is on while the button is held and off when it is released.
+
+### Input toggle
+
+The parameter follows the value sent by the controller: any positive value is on, zero is off.
+
+### Script toggle
+
+Each `127` press toggles the parameter on or off; release messages are ignored. This is the best mode for momentary MIDI buttons that should latch.
+
+### Trigger
+
+A `127` press performs a one-shot max-then-min action. It suits fire-and-reset targets and global actions such as Capture MIDI when supported by a mapper.
+
+Example nanoKONTROL2 assignment:
+
+- S button → Device On
+- M button → Filter On
+- R button → LFO On
+- Transport button → Capture MIDI (in a mapper that exposes this global action)
+
+Button layouts prefer free controls classified as `button` in the MIDI Control Pool. If none is available, the route remains unassigned instead of taking a knob or fader.
+
 ## Naming your script
 
 Before export, choose a descriptive **Script name**. It becomes the Control Surface identity shown during installation, while the generator creates compatible identifiers for Ableton and Python:

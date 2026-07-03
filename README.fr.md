@@ -101,6 +101,35 @@ Filtrer par instrument, effet audio ou effet MIDI. Le script mémorise le nom vi
 
 Chaque paramètre est cherché par alias exact puis normalisé. Garder **Allow index fallback if name is missing** désactivé sauf nécessité explicite.
 
+## Mappings de boutons
+
+Ableton Device Mapper peut mapper des boutons MIDI vers les paramètres natifs comme Device On, les switches, toggles, modes Sync et autres contrôles on/off. Choisir **Button** comme type de contrôle, puis un mode :
+
+### Momentary
+
+Le paramètre reste actif tant que le bouton est maintenu, puis se désactive au relâchement.
+
+### Input toggle
+
+Le paramètre suit la valeur envoyée par le contrôleur : toute valeur positive active, zéro désactive.
+
+### Script toggle
+
+Chaque appui à `127` inverse l'état du paramètre ; le relâchement est ignoré. C'est le mode recommandé pour faire latcher un bouton MIDI momentané.
+
+### Trigger
+
+Un appui à `127` exécute une impulsion max puis min. Ce mode convient aux actions ponctuelles et à Capture MIDI lorsqu'un mapper expose cette action globale.
+
+Exemple nanoKONTROL2 :
+
+- bouton S → Device On
+- bouton M → Filter On
+- bouton R → LFO On
+- bouton Transport → Capture MIDI (dans un mapper exposant cette action globale)
+
+Les layouts de boutons préfèrent les contrôles libres classés `button` dans le MIDI Control Pool. Sans bouton libre, la route reste non assignée au lieu de prendre un knob ou un fader.
+
 ## Nommer son script
 
 Avant l'export, choisir un **Nom du script** descriptif. Il devient l'identité de la Control Surface pendant l'installation, tandis que le générateur produit automatiquement des identifiants compatibles :

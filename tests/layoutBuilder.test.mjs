@@ -3,13 +3,14 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 
-import { ABLETON_DEVICE_LAYOUTS, getBestLayoutIds, getLayoutById } from '../client/src/data/abletonDeviceLayouts.js'
+import { ABLETON_DEVICE_LAYOUTS, GENERIC_ABLETON_LAYOUTS, getBestLayoutIds, getLayoutById } from '../client/src/data/abletonDeviceLayouts.js'
 import { findCatalogDevice } from '../client/src/data/abletonDeviceCatalog.js'
 import {
   addLayoutToBuilder,
   createControlPool,
   createPortableProfile,
   detectMappingWarnings,
+  isButtonLikeParameter,
   parsePortableProfile,
   removeLayoutFromBuilder,
 } from '../client/src/utils/layoutBuilder.js'
@@ -27,11 +28,46 @@ const controls = Array.from({ length: 16 }, (_, index) => ({
   label: index < 8 ? `Fader ${index + 1}` : `Knob ${index - 7}`,
   controlKind: index < 8 ? 'fader' : 'knob',
 }))
+const buttonControls = Array.from({ length: 4 }, (_, index) => ({
+  id: `button-${index}`,
+  endpointName: 'Test Controller',
+  frameworkChannel: 0,
+  userChannel: 1,
+  data1: 40 + index,
+  label: `Button ${index + 1}`,
+  controlKind: 'button',
+}))
+
+test('button-like detection recognizes Device On and conservative switch names', () => {
+  assert.equal(isButtonLikeParameter({ name: 'Device On' }), true)
+  assert.equal(isButtonLikeParameter({ name: 'Filter On', min: 0, max: 1 }), true)
+  assert.equal(isButtonLikeParameter({ name: 'Mode Enable' }), true)
+  assert.equal(isButtonLikeParameter({ name: 'Section Active' }), true)
+  assert.equal(isButtonLikeParameter({ name: 'Filter Freq', min: 0, max: 1, controlType: 'continuous' }), false)
+})
 
 test('Operator modular layouts include Musical 8 and Filter 4', () => {
   assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((layout) => layout.id === 'operator-musical-8'))
   assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((layout) => layout.id === 'operator-filter-4'))
   assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((layout) => layout.id === 'operator-envelope-8'))
+  assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((layout) => layout.id === 'operator-switches-4'))
+  assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((layout) => layout.id === 'operator-performance-buttons-4'))
+  assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((layout) => layout.id === 'operator-device-on'))
+  assert.ok(GENERIC_ABLETON_LAYOUTS.some((layout) => layout.id === 'generic-device-on-button'))
+  assert.ok(GENERIC_ABLETON_LAYOUTS.some((layout) => layout.id === 'generic-first-4-switches'))
+})
+
+test('button layouts prefer and auto-assign free MIDI buttons only', async () => {
+  const device = await loadOperator()
+  const layout = getLayoutById('Operator', 'operator-switches-4')
+  const state = addLayoutToBuilder({ layoutStack: [], mappings: [] }, { layout, device, controls: [...controls, ...buttonControls], instanceId: 'switches-1' })
+  assert.ok(state.mappings.every((mapping) => mapping.controlType === 'button'))
+  assert.ok(state.mappings.every((mapping) => mapping.preferredControlKind === 'button'))
+  assert.deepEqual(state.mappings.map((mapping) => mapping.source?.id), buttonControls.map((control) => control.id))
+  assert.ok(state.mappings.every((mapping) => mapping.buttonMode === 'toggle_in_script'))
+
+  const withoutButtons = addLayoutToBuilder({ layoutStack: [], mappings: [] }, { layout, device, controls, instanceId: 'switches-2' })
+  assert.ok(withoutButtons.mappings.every((mapping) => mapping.source === null))
 })
 
 test('layouts add to the current stack instead of replacing it', async () => {
@@ -81,6 +117,22 @@ test('control pool distinguishes assigned and free controls', async () => {
 test('Operator best layout contains the validated performance modules', async () => {
   const operator = await loadOperator()
   assert.deepEqual(getBestLayoutIds(operator), ['operator-musical-8', 'operator-filter-4', 'operator-oscillator-levels-4'])
+  assert.deepEqual(getBestLayoutIds(operator, { includeButtons: true }), ['operator-musical-8', 'operator-filter-4', 'operator-oscillator-levels-4', 'operator-switches-4'])
+})
+
+test('button warnings report incompatible sources, targets, modes, and duplicate buttons', async () => {
+  const device = await loadOperator()
+  const volume = device.parameters.find((parameter) => parameter.name === 'Volume')
+  const base = {
+    id: 'button-warning-1', userLabel: 'Bad button', controlType: 'button', buttonMode: '',
+    source: controls[0], targetParameterName: volume.name,
+  }
+  const warnings = detectMappingWarnings([base, { ...base, id: 'button-warning-2', buttonMode: 'trigger' }], device)
+  assert.ok(warnings.some((warning) => warning.type === 'button_assigned_to_continuous_control'))
+  assert.ok(warnings.some((warning) => warning.type === 'button_mode_missing'))
+  assert.ok(warnings.some((warning) => warning.type === 'button_target_not_switch'))
+  assert.ok(warnings.some((warning) => warning.type === 'trigger_on_continuous_parameter'))
+  assert.ok(warnings.some((warning) => warning.type === 'duplicate_midi_button'))
 })
 
 test('portable profile export and import preserves builder state', async () => {
@@ -94,6 +146,36 @@ test('portable profile export and import preserves builder state', async () => {
   assert.equal(restored.layoutStack.length, 1)
   assert.equal(restored.mappings.length, 8)
   assert.equal(restored.controlPool.length, 16)
+})
+
+test('portable profile preserves button mode, button id, and preferred control kind', async () => {
+  const device = await loadOperator()
+  const state = addLayoutToBuilder({ layoutStack: [], mappings: [] }, { layout: getLayoutById('Operator', 'operator-device-on'), device, controls: buttonControls, instanceId: 'device-on-1' })
+  const exported = createPortableProfile({ scriptName: 'Operator Buttons', targetDeviceKey: device.catalogKey, layoutStack: state.layoutStack, mappings: state.mappings, controlPool: buttonControls })
+  const restored = parsePortableProfile(JSON.stringify(exported))
+  assert.equal(restored.mappings[0].buttonMode, 'toggle_in_script')
+  assert.equal(restored.mappings[0].buttonId, '0:40')
+  assert.equal(restored.mappings[0].preferredControlKind, 'button')
+})
+
+test('generated Python and profile contain the complete button mapping contract', async () => {
+  const device = await loadOperator()
+  const state = addLayoutToBuilder({ layoutStack: [], mappings: [] }, { layout: getLayoutById('Operator', 'operator-device-on'), device, controls: buttonControls, instanceId: 'device-on-1' })
+  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings: state.mappings, scriptDisplayName: 'Operator Button Remote' })
+  const profile = JSON.parse(files['profile.json'])
+  const script = files[`${files.scriptSlug}.py`]
+  assert.equal(profile.mappings[0].controlType, 'button')
+  assert.equal(profile.mappings[0].buttonMode, 'toggle_in_script')
+  assert.equal(profile.mappings[0].buttonId, '0:40')
+  assert.equal(profile.mappings[0].preferredControlKind, 'button')
+  assert.match(script, /self\._button_states = \{\}/)
+  assert.match(script, /def _apply_button_mapping\(self, mapping, value, parameter\):/)
+  assert.match(script, /if mapping\["control_type"\] == "button":/)
+  assert.match(script, /toggle_in_script/)
+  assert.match(script, /button_mode == "trigger"/)
+  assert.match(script, /"button_id": "0:40"/)
+  assert.doesNotMatch(script, /def receive_midi\(/)
+  assert.doesNotMatch(script, /self\.log_message\(/)
 })
 
 test('generated profile and Python include layout metadata and invert scaling', async () => {

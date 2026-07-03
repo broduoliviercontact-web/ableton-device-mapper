@@ -87,6 +87,10 @@ test('Ableton Device Mapper UI exposes device, parameter and preset controls', a
   assert.match(source, /aria-label="Script name"/)
   assert.match(source, /Ableton-safe name/i)
   assert.match(source, /Reset to default/)
+  assert.match(source, /Include button layouts/)
+  assert.match(source, /aria-label="Control type"/)
+  assert.match(source, /aria-label="Button mode"/)
+  assert.match(source, /Script toggle = latch on\/off/)
 })
 
 test('native Ableton generator preserves listener, lookup and scaling safety', async () => {

@@ -48,6 +48,9 @@ export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName
       createdBy: mapping.createdBy || 'manual',
       userLabel: mapping.userLabel || mapping.source?.label || mapping.targetParameterName || 'Mapping',
       controlType: mapping.controlType || 'continuous',
+      buttonMode: mapping.controlType === 'button' ? (mapping.buttonMode || 'momentary') : null,
+      buttonId: mapping.controlType === 'button' ? (mapping.buttonId || (mapping.source ? `${mapping.source.frameworkChannel}:${mapping.source.data1}` : '')) : null,
+      preferredControlKind: mapping.preferredControlKind || (mapping.controlType === 'button' ? 'button' : mapping.source?.controlKind || 'knob'),
       targetType: 'ableton_device_parameter',
       targetDeviceName: device.deviceName,
       targetDeviceAliases: unique([device.deviceName, device.deviceClassName, ...(mapping.targetDeviceAliases || [])]),
@@ -67,7 +70,7 @@ export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName
 function buildPythonMappings(profile) {
   return profile.mappings
     .filter((mapping) => mapping.source && mapping.targetParameterName)
-    .map((mapping) => `        {"channel": ${mapping.source.frameworkChannel}, "cc": ${mapping.source.data1}, "control_type": ${pyString(mapping.controlType)}, "type": "ableton_device_parameter", "device": ${pyString(mapping.targetDeviceName)}, "device_aliases": ${JSON.stringify(mapping.targetDeviceAliases)}, "parameter": ${pyString(mapping.targetParameterName)}, "parameter_aliases": ${JSON.stringify(mapping.parameterAliases)}, "parameter_index": ${mapping.parameterIndex == null ? 'None' : Number(mapping.parameterIndex)}, "allow_index_fallback": ${pyBoolean(mapping.allowIndexFallback)}, "scaling": ${pyString(mapping.scaling)}, "invert": ${pyBoolean(mapping.invert)}, "curve": ${pyString(mapping.curve)}}`)
+    .map((mapping) => `        {"channel": ${mapping.source.frameworkChannel}, "cc": ${mapping.source.data1}, "control_type": ${pyString(mapping.controlType)}, "type": "ableton_device_parameter", "button_mode": ${mapping.controlType === 'button' ? pyString(mapping.buttonMode) : 'None'}, "button_id": ${mapping.controlType === 'button' ? pyString(mapping.buttonId) : 'None'}, "device": ${pyString(mapping.targetDeviceName)}, "device_aliases": ${JSON.stringify(mapping.targetDeviceAliases)}, "parameter": ${pyString(mapping.targetParameterName)}, "parameter_aliases": ${JSON.stringify(mapping.parameterAliases)}, "parameter_index": ${mapping.parameterIndex == null ? 'None' : Number(mapping.parameterIndex)}, "allow_index_fallback": ${pyBoolean(mapping.allowIndexFallback)}, "scaling": ${pyString(mapping.scaling)}, "invert": ${pyBoolean(mapping.invert)}, "curve": ${pyString(mapping.curve)}}`)
     .join(',\n')
 }
 
@@ -116,6 +119,7 @@ ${buildPythonMappings(profile)}
     def _setup_mappings(self):
         self._mappings = list(self.MAPPINGS)
         self._controls = []
+        self._button_states = {}
         for mapping in self._mappings:
             control = EncoderElement(
                 MIDI_CC_TYPE,
@@ -130,13 +134,44 @@ ${buildPythonMappings(profile)}
     def _make_value_listener(self, mapping):
         def listener(value):
             self._log("CC received channel={} cc={} value={}".format(mapping["channel"], mapping["cc"], value))
-            parameter = self._find_parameter(mapping)
-            if parameter is None:
-                return
-            scaled_value = self._scale_midi_to_parameter(value, parameter, mapping.get("invert", False))
-            parameter.value = scaled_value
-            self._log("parameter updated: {} value={} scaled={}".format(parameter.name, value, scaled_value))
+            self._apply_mapping(mapping, value)
         return listener
+
+    def _apply_mapping(self, mapping, value):
+        parameter = self._find_parameter(mapping)
+        if parameter is None:
+            return
+        if mapping["control_type"] == "button":
+            self._apply_button_mapping(mapping, value, parameter)
+            return
+        scaled_value = self._scale_midi_to_parameter(value, parameter, mapping.get("invert", False))
+        parameter.value = scaled_value
+        self._log("parameter updated: {} value={} scaled={}".format(parameter.name, value, scaled_value))
+
+    def _apply_button_mapping(self, mapping, value, parameter):
+        button_mode = mapping.get("button_mode", "momentary")
+
+        if button_mode in ("momentary", "toggle_from_input"):
+            parameter.value = parameter.max if value > 0 else parameter.min
+            self._log("button updated: {} mode={} value={}".format(parameter.name, button_mode, value))
+            return
+
+        if button_mode == "toggle_in_script":
+            if value != 127:
+                return
+            button_id = mapping.get("button_id", "{}:{}".format(mapping["channel"], mapping["cc"]))
+            state = not self._button_states.get(button_id, False)
+            self._button_states[button_id] = state
+            parameter.value = parameter.max if state else parameter.min
+            self._log("button toggled: {} state={}".format(parameter.name, state))
+            return
+
+        if button_mode == "trigger":
+            if value != 127:
+                return
+            parameter.value = parameter.max
+            parameter.value = parameter.min
+            self._log("button triggered: {}".format(parameter.name))
 
     def _find_target_device(self, mapping):
         song = self.song()
