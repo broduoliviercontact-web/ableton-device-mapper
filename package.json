@@ -1,0 +1,12 @@
+{
+  "name": "ableton-device-mapper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Create installable Ableton Remote Scripts for native Ableton Live devices from your browser.",
+  "scripts": {
+    "dev": "npm --prefix client run dev",
+    "test": "node --test tests/*.test.mjs",
+    "build": "npm --prefix client run build"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+client/node_modules/
+dist/
+client/dist/
+.DS_Store
+.env
+.env.*
+*.log
+__pycache__/
+*.pyc
+coverage/
