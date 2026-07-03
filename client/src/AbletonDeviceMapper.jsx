@@ -8,11 +8,14 @@ import {
   getPresetParameters,
   getRecommendedParameters,
 } from './data/abletonDeviceCatalog.js'
-import { createAbletonDeviceScriptSlug } from './generators/abletonDeviceRemoteScriptGenerator.js'
 import {
   buildAbletonDeviceMapperPack,
   createAbletonDeviceTerminalCommands,
 } from './generators/abletonDevicePackGenerator.js'
+import {
+  createScriptNaming,
+  makeDefaultScriptName,
+} from './utils/scriptNaming.js'
 
 const STEPS = ['Connect Controller', 'Choose Device', 'Choose Layout', 'Mapping Matrix', 'Export ZIP']
 
@@ -77,6 +80,8 @@ export default function AbletonDeviceMapper() {
   const [mappings, setMappings] = useState([])
   const [isExporting, setIsExporting] = useState(false)
   const [lastExportedSlug, setLastExportedSlug] = useState('')
+  const [scriptName, setScriptName] = useState(() => makeDefaultScriptName({ deviceName: initialDevice.deviceName, controllerName: 'MIDI Controller' }))
+  const [scriptNameTouched, setScriptNameTouched] = useState(false)
 
   const selectedDevice = devices.find((device) => device.catalogKey === deviceKey) || initialDevice
   const filteredDevices = devices.filter((device) => device.deviceCategory === category && (
@@ -85,8 +90,15 @@ export default function AbletonDeviceMapper() {
   ))
   const recommended = getRecommendedParameters(selectedDevice, 12)
   const inputName = inputs.find((input) => input.id === selectedInputId)?.name || controls[0]?.endpointName || 'your MIDI controller'
-  const scriptSlug = createAbletonDeviceScriptSlug(selectedDevice.deviceName)
+  const defaultScriptName = useMemo(() => makeDefaultScriptName({ deviceName: selectedDevice.deviceName, controllerName: inputName }), [selectedDevice.deviceName, inputName])
+  const scriptNaming = useMemo(() => createScriptNaming(scriptName, defaultScriptName), [scriptName, defaultScriptName])
+  const { scriptSlug } = scriptNaming
+  const scriptNameTooLong = scriptNaming.scriptDisplayName.length > 64
   const readiness = [controls.length > 0, Boolean(selectedDevice), mappings.length > 0, mappings.length > 0, mappings.length > 0]
+
+  useEffect(() => {
+    if (!scriptNameTouched) setScriptName(defaultScriptName)
+  }, [defaultScriptName, scriptNameTouched])
 
   useEffect(() => {
     const previousTitle = document.title
@@ -188,7 +200,12 @@ export default function AbletonDeviceMapper() {
   const exportPack = async () => {
     setIsExporting(true)
     try {
-      const { zip, scriptSlug: exportedSlug } = buildAbletonDeviceMapperPack({ device: selectedDevice, mappings, inputName })
+      const { zip, scriptSlug: exportedSlug } = buildAbletonDeviceMapperPack({
+        device: selectedDevice,
+        mappings,
+        inputName,
+        scriptDisplayName: scriptNaming.scriptDisplayName,
+      })
       const blob = await zip.generateAsync({ type: 'blob', platform: 'UNIX' })
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -249,7 +266,7 @@ export default function AbletonDeviceMapper() {
           const query=mapping.parameterSearch.toLowerCase(); const options=selectedDevice.parameters.filter((parameter)=>parameter.name!=='Device On'&&(!query||`${parameter.name} ${parameter.section}`.toLowerCase().includes(query))).slice(0,120)
           return <div className="native-mapping-row" key={mapping.id}><div className="source-cell"><span className="cc-chip">CC {mapping.source.data1}</span><div><strong>{mapping.source.label}</strong><small>{mapping.source.endpointName} · CH {mapping.source.userChannel}</small></div></div><div className="native-device-cell"><strong>{selectedDevice.deviceName}</strong><small>{selectedDevice.deviceClassName}</small></div><div className="native-target-cell"><input type="search" aria-label="Search parameter" placeholder="Search parameter" value={mapping.parameterSearch} onChange={(event)=>updateMapping(mapping.id,{parameterSearch:event.target.value})}/><select aria-label="Target parameter" value={mapping.targetParameterName} onChange={(event)=>chooseParameter(mapping,event.target.value)}><option value={mapping.targetParameterName}>{mapping.targetParameterName}</option>{options.filter((parameter)=>parameter.name!==mapping.targetParameterName).map((parameter)=><option key={`${parameter.liveIndex}-${parameter.name}`} value={parameter.name}>{parameter.name}</option>)}</select><details className="advanced-index"><summary><strong className={mapping.allowIndexFallback?'fallback-state fallback-state--enabled':'fallback-state'}>{mapping.allowIndexFallback?'Index fallback enabled':'Name match first'}</strong><span>Advanced</span></summary><label className="fallback-opt-in"><input type="checkbox" checked={mapping.allowIndexFallback} onChange={(event)=>updateMapping(mapping.id,{allowIndexFallback:event.target.checked})}/><span><strong>Allow index fallback if name is missing</strong><small>Dangerous: keep disabled unless the catalog name cannot resolve.</small></span></label><div className="fallback-index-editor"><label>FALLBACK PARAMETER INDEX <input type="number" min="0" value={mapping.parameterIndex??0} onChange={(event)=>updateMapping(mapping.id,{parameterIndex:Number(event.target.value)})}/></label></div><p>Catalog liveIndex {mapping.liveIndex}; parameterIndex excludes Device On.</p></details></div><div className="section-cell"><Badge status={mapping.parameterRisk==='safe'?'ready':'captured'}>{mapping.parameterSection}</Badge><small>{mapping.parameterRisk}</small></div><button className="icon-button" onClick={()=>setMappings((current)=>current.filter((item)=>item.id!==mapping.id))} aria-label="Delete mapping"><Icon name="trash"/></button></div>})}<div className="mapping-footer"><span>RESOLUTION POLICY</span><strong>ALIASES → NORMALIZED NAME → OPT-IN INDEX</strong><span>SCALING: PARAMETER MIN / MAX</span></div></div> : <EmptyState title="No routes patched" body="Apply a preset or add a recommended parameter from Step 2."/>}<div className="panel-actions"><button className="primary-button" disabled={!mappings.length} onClick={()=>setActiveStep(4)}>Review export ZIP <span>→</span></button></div></article>}
 
-        {activeStep === 4 && <article className="panel export-panel"><PanelHeader index="05" title="Export Ableton Device Pack" subtitle="A native-device Remote Script and installation diagnostics, generated locally."/><div className="export-layout"><div><div className="export-stamp"><Icon name="export"/><span>PACK STATUS</span><strong>{mappings.length?'READY TO BUILD':'WAITING FOR ROUTES'}</strong></div><h2>{scriptSlug}</h2><p className="muted">Controls {selectedDevice.deviceName} directly through Live's API. No Max for Live target is included or required.</p><button className="export-button" onClick={exportPack} disabled={!mappings.length||isExporting}><Icon name="export"/>{isExporting?'Building ZIP…':'Download native device pack'}</button><small className="privacy-note">Catalog lookup and ZIP generation stay inside this browser session.</small></div><NativeFileTree scriptSlug={scriptSlug}/></div>{lastExportedSlug&&<NativeSetupWizard scriptSlug={lastExportedSlug} deviceName={selectedDevice.deviceName} inputName={inputName}/>}</article>}
+        {activeStep === 4 && <article className="panel export-panel"><PanelHeader index="05" title="Export Ableton Device Pack" subtitle="Name the Control Surface, then generate its installable pack locally."/><div className="script-name-card"><div className="script-name-heading"><div><span>SCRIPT IDENTITY</span><strong>Name your Ableton Control Surface</strong></div><button type="button" onClick={() => { setScriptName(defaultScriptName); setScriptNameTouched(false) }}>Reset to default</button></div><label className="field"><span>SCRIPT NAME</span><input aria-label="Script name" value={scriptName} placeholder="Operator NanoKontrol Remote" onChange={(event) => { setScriptName(event.target.value); setScriptNameTouched(true) }}/><small>This name will appear as the Ableton Control Surface name. Spaces and accents will be converted to a safe script folder name.</small></label><div className="safe-name-preview"><div><span>ABLETON-SAFE NAME</span><strong>{scriptSlug}</strong></div><div><span>PYTHON CLASS</span><strong>{scriptNaming.pythonClassName}</strong></div></div>{scriptNameTooLong&&<p className="soft-warning">Long name: it will work, but a shorter Control Surface name is easier to identify in Ableton.</p>}<p className="collision-note">Reusing the same script name will update/replace the previous script after reinstall.</p></div><div className="export-layout"><div><div className="export-stamp"><Icon name="export"/><span>PACK STATUS</span><strong>{mappings.length?'READY TO BUILD':'WAITING FOR ROUTES'}</strong></div><h2>{scriptSlug}</h2><p className="muted">Controls {selectedDevice.deviceName} directly through Live's API. No companion target is included or required.</p><button className="export-button" onClick={exportPack} disabled={!mappings.length||isExporting}><Icon name="export"/>{isExporting?'Building ZIP…':'Download native device pack'}</button><small className="privacy-note">Catalog lookup and ZIP generation stay inside this browser session.</small></div><NativeFileTree scriptSlug={scriptSlug}/></div>{lastExportedSlug&&<NativeSetupWizard scriptSlug={lastExportedSlug} deviceName={selectedDevice.deviceName} inputName={inputName}/>}</article>}
       </section>
     </main>
     <footer><span>ABLETON DEVICE MAPPER / v0.1</span><span>83 DEVICES · 2,746 PARAMETERS · NO BACKEND</span><a href="https://deerflow.tech" target="_blank" rel="noreferrer">Created By Deerflow ↗</a></footer>

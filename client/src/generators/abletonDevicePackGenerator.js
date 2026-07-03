@@ -32,8 +32,10 @@ exit "$FAILURES"
 `
 }
 
-export function generateAbletonDeviceTroubleshooting({ scriptSlug, deviceName }) {
+export function generateAbletonDeviceTroubleshooting({ scriptSlug, scriptDisplayName, deviceName }) {
   return `# Troubleshooting — ${deviceName}
+
+Control Surface: **${scriptDisplayName}** (safe folder: \`${scriptSlug}\`)
 
 ## Device not found
 
@@ -64,14 +66,14 @@ export function generateAbletonDeviceTroubleshooting({ scriptSlug, deviceName })
 `
 }
 
-export function generateAbletonDeviceReadMeFirst({ scriptSlug, deviceName, inputName = 'your MIDI controller' }) {
+export function generateAbletonDeviceReadMeFirst({ scriptSlug, scriptDisplayName, deviceName, inputName = 'your MIDI controller' }) {
   return `# Read me first
 
 This pack controls a native Ableton Live device. No Max for Live target is required.
 
 1. Quit Ableton Live.
 2. Copy only \`1_COPY_THIS_FOLDER_TO_REMOTE_SCRIPTS/${scriptSlug}/\` into \`~/Music/Ableton/User Library/Remote Scripts/\`.
-3. Remove older folders with the same name and any \`__pycache__\`.
+3. If a folder with the same name already exists in Remote Scripts, remove it before installing this new version. Also remove any \`__pycache__\`.
 4. Restart Live.
 5. In Settings → Link, Tempo & MIDI, select **${scriptSlug}** as Control Surface.
 6. Select **${inputName}** as Input and **None** as Output.
@@ -79,21 +81,24 @@ This pack controls a native Ableton Live device. No Max for Live target is requi
 8. Move a mapped MIDI control and check Log.txt if nothing responds.
 
 Parameter names are matched first. Index fallback is disabled by default because device parameter order can change.
+
+- Requested script name: **${scriptDisplayName}**
+- Ableton-safe Control Surface name: **${scriptSlug}**
 `
 }
 
-export function buildAbletonDeviceMapperPack({ device, mappings, inputName }) {
-  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings })
+export function buildAbletonDeviceMapperPack({ device, mappings, inputName, scriptDisplayName }) {
+  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName: inputName })
   const zip = new JSZip()
   const root = zip.folder('Ableton_Device_Mapper_Pack')
   const scriptFolder = root.folder(`1_COPY_THIS_FOLDER_TO_REMOTE_SCRIPTS/${files.scriptSlug}`)
   scriptFolder.file('__init__.py', files['__init__.py'])
   scriptFolder.file(`${files.scriptSlug}.py`, files[`${files.scriptSlug}.py`])
   scriptFolder.file('profile.json', files['profile.json'])
-  root.file('2_READ_ME_FIRST.md', generateAbletonDeviceReadMeFirst({ scriptSlug: files.scriptSlug, deviceName: device.deviceName, inputName }))
+  root.file('2_READ_ME_FIRST.md', generateAbletonDeviceReadMeFirst({ scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, deviceName: device.deviceName, inputName }))
   root.file('INSTALL_CHECK.command', generateAbletonDeviceInstallCheck(files.scriptSlug), { unixPermissions: 0o755 })
-  root.file('TROUBLESHOOTING.md', generateAbletonDeviceTroubleshooting({ scriptSlug: files.scriptSlug, deviceName: device.deviceName }))
-  return { zip, scriptSlug: files.scriptSlug, files }
+  root.file('TROUBLESHOOTING.md', generateAbletonDeviceTroubleshooting({ scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, deviceName: device.deviceName }))
+  return { zip, scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, pythonClassName: files.pythonClassName, files }
 }
 
 export function createAbletonDeviceTerminalCommands(scriptSlug) {

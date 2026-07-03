@@ -87,6 +87,24 @@ Each route contains its MIDI endpoint, channel and CC, target device aliases, pa
 
 Keep **Allow index fallback if name is missing** disabled unless name matching is impossible. Native parameter order can change between devices or Live versions.
 
+## Naming your script
+
+Before export, choose a descriptive **Script name**. It becomes the Control Surface identity shown during installation, while the generator creates compatible identifiers for Ableton and Python:
+
+```text
+Operator NanoKontrol Remote
+→ folder/file: Operator_NanoKontrol_Remote
+→ Python class: OperatorNanoKontrolRemote
+```
+
+Spaces, punctuation, and accents are converted safely. Names beginning with a number receive a `Script` prefix. Prefer **Device + Controller + Remote** over generic names such as `test`:
+
+- `Operator NanoKontrol Remote`
+- `Drift BeatStep Remote`
+- `Auto Filter LaunchControl XL Remote`
+
+Reusing a name replaces the previous installed folder after a clean reinstall. The script name is included in the deterministic `BUILD_ID`, so differently named scripts with identical mappings remain distinguishable in Log.txt.
+
 ## MIDI value scaling
 
 ```text

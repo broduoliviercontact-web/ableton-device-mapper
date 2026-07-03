@@ -2,7 +2,9 @@
 
 ## 1. Export and unzip
 
-Build at least one mapping, download the ZIP, and unzip `Ableton_Device_Mapper_Pack`. Do not copy the whole pack into Ableton.
+Build at least one mapping, choose a descriptive Script name, download the ZIP, and unzip `Ableton_Device_Mapper_Pack`. Do not copy the whole pack into Ableton.
+
+The readable name is converted to an Ableton-safe folder and Python filename. For example, `Operator NanoKontrol Remote` becomes `Operator_NanoKontrol_Remote`. This safe name is the generated Control Surface entry.
 
 ## 2. Copy the Remote Script
 
@@ -18,7 +20,7 @@ to:
 ~/Music/Ableton/User Library/Remote Scripts/
 ```
 
-The installed folder must directly contain `__init__.py`, `<scriptSlug>.py`, and `profile.json`. Remove older folders with the same slug and any `__pycache__`.
+The installed folder must directly contain `__init__.py`, `<scriptSlug>.py`, and `profile.json`. If a folder with the same name already exists, remove it before installing the new version. Remove any `__pycache__` as well.
 
 ## 3. Configure Live
 

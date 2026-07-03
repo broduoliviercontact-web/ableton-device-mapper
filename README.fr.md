@@ -69,6 +69,24 @@ Filtrer par instrument, effet audio ou effet MIDI. Le script mémorise le nom vi
 
 Chaque paramètre est cherché par alias exact puis normalisé. Garder **Allow index fallback if name is missing** désactivé sauf nécessité explicite.
 
+## Nommer son script
+
+Avant l'export, choisir un **Nom du script** descriptif. Il devient l'identité de la Control Surface pendant l'installation, tandis que le générateur produit automatiquement des identifiants compatibles :
+
+```text
+Operator NanoKontrol Remote
+→ dossier/fichier : Operator_NanoKontrol_Remote
+→ classe Python : OperatorNanoKontrolRemote
+```
+
+Les espaces, accents et signes de ponctuation sont convertis. Un nom commençant par un chiffre reçoit le préfixe `Script`. Préférer la formule **Device + Contrôleur + Remote** à un nom générique comme `test` :
+
+- `Operator NanoKontrol Remote`
+- `Drift BeatStep Remote`
+- `Auto Filter LaunchControl XL Remote`
+
+Réutiliser le même nom remplace l'ancien dossier après réinstallation. Le nom participe aussi au `BUILD_ID` déterministe.
+
 ## Scaling MIDI
 
 ```text
