@@ -39,6 +39,38 @@ flowchart LR
 - Fallback par index désactivé par défaut
 - `BUILD_ID`, logs Live, Setup Wizard et install checker
 - Export ZIP entièrement local
+- Layout Builder modulaire avec addition de plusieurs groupes
+- Layout Stack réorganisable et MIDI Control Pool intelligent
+- Détection des sources/paramètres dupliqués et routes non assignées
+- Export/import du profil JSON dans le navigateur
+- Scaling MIDI linéaire inversé
+
+## Layout Builder
+
+Un layout est un groupe de mappings. **Add layout** ajoute le groupe à la surface actuelle ; **Replace mapping** remplace uniquement les groupes issus de layouts et conserve les mappings manuels ; **Preview only** affiche le contenu sans modifier la stack.
+
+Chaque élément de la Layout Stack peut être déplacé ou supprimé. Supprimer un layout retire uniquement ses propres mappings. Les routes manuelles restent présentes et toutes les lignes sont éditables.
+
+Le MIDI Control Pool préfère automatiquement un fader, knob ou bouton selon le layout. S'il n'existe plus de contrôle compatible, la ligne reste visible avec **No MIDI source assigned** et peut être complétée avec Learn MIDI.
+
+**Export Profile JSON** sauvegarde le nom du script, le device, la stack, les mappings et le pool. **Import Profile JSON** restaure ce travail dans le navigateur.
+
+### Exemple : layout performance Operator
+
+```text
+Operator Musical 8
++ Operator Filter 4
++ Operator Oscillator Levels 4
+```
+
+Le bouton **Auto-build best layout** construit cette combinaison automatiquement.
+
+### Exemple : layout personnalisé
+
+```text
+Blank Custom 8
++ assignation manuelle des paramètres
+```
 
 ## Démarrage rapide
 
@@ -92,6 +124,8 @@ Réutiliser le même nom remplace l'ancien dossier après réinstallation. Le no
 ```text
 MIDI 0–127 → normalisation 0.0–1.0 → parameter.min–parameter.max
 ```
+
+L'option **Invert MIDI** inverse la plage : MIDI 0 devient le maximum et MIDI 127 le minimum. Le profil conserve `curve: "linear"` pour permettre de futures courbes sans complexifier cette version.
 
 ## Démo Operator connue-bonne
 

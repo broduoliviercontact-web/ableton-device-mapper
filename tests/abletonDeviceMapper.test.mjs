@@ -6,11 +6,11 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 import {
-  LAYOUT_PRESETS,
   OPERATOR_MUSICAL_8,
   findCatalogDevice,
   getCatalogDevices,
 } from '../client/src/data/abletonDeviceCatalog.js'
+import { ABLETON_DEVICE_LAYOUTS } from '../client/src/data/abletonDeviceLayouts.js'
 import {
   createAbletonDeviceProfile,
   generateAbletonDeviceRemoteScriptFiles,
@@ -77,11 +77,13 @@ test('Ableton Device Mapper UI exposes device, parameter and preset controls', a
   assert.match(source, /Ableton Device Mapper/)
   assert.match(source, /Choose Ableton Device/)
   assert.match(source, /aria-label="Ableton device"/)
-  assert.match(source, /aria-label="Search parameter"/)
-  assert.ok(LAYOUT_PRESETS.some((preset) => preset.label === 'Operator Musical 8'))
+  assert.match(source, /placeholder="Search parameter"/)
+  assert.ok(ABLETON_DEVICE_LAYOUTS.Operator.some((preset) => preset.name === 'Operator Musical 8'))
   assert.match(source, /Name match first/)
-  assert.match(source, /Fallback index disabled by default/)
-  assert.match(source, /No companion target required/)
+  assert.match(source, /Layout Stack/)
+  assert.match(source, /Auto-build best layout/)
+  assert.match(source, /Export Profile JSON/)
+  assert.match(source, /Import Profile JSON/)
   assert.match(source, /aria-label="Script name"/)
   assert.match(source, /Ableton-safe name/i)
   assert.match(source, /Reset to default/)

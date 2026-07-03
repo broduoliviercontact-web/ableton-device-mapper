@@ -66,7 +66,10 @@ Control Surface: **${scriptDisplayName}** (safe folder: \`${scriptSlug}\`)
 `
 }
 
-export function generateAbletonDeviceReadMeFirst({ scriptSlug, scriptDisplayName, deviceName, inputName = 'your MIDI controller' }) {
+export function generateAbletonDeviceReadMeFirst({ scriptSlug, scriptDisplayName, deviceName, inputName = 'your MIDI controller', mappingWarnings = [] }) {
+  const warningSection = mappingWarnings.length
+    ? `\n## Layout warnings\n\n${mappingWarnings.map((warning) => `- ${warning.message}`).join('\n')}\n`
+    : '\n## Layout health\n\nNo mapping conflicts were detected when this pack was exported.\n'
   return `# Read me first
 
 This pack controls a native Ableton Live device. No Max for Live target is required.
@@ -84,18 +87,19 @@ Parameter names are matched first. Index fallback is disabled by default because
 
 - Requested script name: **${scriptDisplayName}**
 - Ableton-safe Control Surface name: **${scriptSlug}**
+${warningSection}
 `
 }
 
-export function buildAbletonDeviceMapperPack({ device, mappings, inputName, scriptDisplayName }) {
-  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName: inputName })
+export function buildAbletonDeviceMapperPack({ device, mappings, inputName, scriptDisplayName, layoutStack = [], controlPool = [], mappingWarnings = [] }) {
+  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName: inputName, layoutStack, controlPool, mappingWarnings })
   const zip = new JSZip()
   const root = zip.folder('Ableton_Device_Mapper_Pack')
   const scriptFolder = root.folder(`1_COPY_THIS_FOLDER_TO_REMOTE_SCRIPTS/${files.scriptSlug}`)
   scriptFolder.file('__init__.py', files['__init__.py'])
   scriptFolder.file(`${files.scriptSlug}.py`, files[`${files.scriptSlug}.py`])
   scriptFolder.file('profile.json', files['profile.json'])
-  root.file('2_READ_ME_FIRST.md', generateAbletonDeviceReadMeFirst({ scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, deviceName: device.deviceName, inputName }))
+  root.file('2_READ_ME_FIRST.md', generateAbletonDeviceReadMeFirst({ scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, deviceName: device.deviceName, inputName, mappingWarnings }))
   root.file('INSTALL_CHECK.command', generateAbletonDeviceInstallCheck(files.scriptSlug), { unixPermissions: 0o755 })
   root.file('TROUBLESHOOTING.md', generateAbletonDeviceTroubleshooting({ scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, deviceName: device.deviceName }))
   return { zip, scriptSlug: files.scriptSlug, scriptDisplayName: files.scriptDisplayName, pythonClassName: files.pythonClassName, files }

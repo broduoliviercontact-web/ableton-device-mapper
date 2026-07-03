@@ -34,3 +34,13 @@ MIDI values are normalized from 0–127 and scaled to `parameter.min` / `paramet
 - Blank Custom
 
 Operator Musical 8 maps CC16–23 to Volume, Tone, Filter Freq, Filter Res, and oscillator A–D levels using catalog-validated indices.
+
+## Modular Layout Builder
+
+Device and generic layouts can be added repeatedly to one Layout Stack. Each generated mapping stores `layoutId`, `layoutInstanceId`, `layoutName`, and `createdBy`. Removing a stack entry therefore removes only its own routes and preserves manual work.
+
+The Control Pool tracks captured MIDI controls and their assignments. Preferred control kinds are used first, then any free control; exhausted pools create explicit unassigned mappings.
+
+Layout Health reports duplicate MIDI sources, duplicate target parameters, missing MIDI sources, missing catalog parameters, and enabled index fallbacks. Warnings are embedded in `profile.json` and the ZIP readme but do not block export.
+
+Portable JSON profiles preserve the script identity, target device, Layout Stack, mappings, and Control Pool.

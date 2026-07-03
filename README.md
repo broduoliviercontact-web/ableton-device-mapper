@@ -47,6 +47,40 @@ flowchart LR
 - Generated `BUILD_ID` and focused Live logs
 - `EncoderElement` with `add_value_listener`
 - Browser-side ZIP export, setup wizard, install checker, and troubleshooting
+- Modular Layout Builder with additive device and generic layouts
+- Reorderable Layout Stack and intelligent MIDI Control Pool assignment
+- Duplicate-source, duplicate-parameter, unassigned, and fallback warnings
+- Browser-side profile JSON export/import
+- Linear inverted MIDI scaling
+
+## Layout Builder
+
+Layouts are modular groups of mappings. **Add layout** appends a group to the current surface; **Replace mapping** replaces layout-generated groups while preserving manual mappings; **Preview only** shows the proposed parameters without changing the stack.
+
+Every stack entry can be moved, removed, and inspected for conflicts. Removing a layout removes only the mappings created by that layout. Manual routes remain intact and all generated rows stay editable.
+
+The MIDI Control Pool prefers captured faders, knobs, or buttons according to each layout definition. When no suitable hardware control remains, the route stays visible as **No MIDI source assigned** and can be completed with Learn MIDI.
+
+Profiles can be saved with **Export Profile JSON** and restored with **Import Profile JSON**. The portable profile includes the script name, target device, Layout Stack, mappings, and Control Pool.
+
+### Example: Operator performance layout
+
+```text
+Operator Musical 8
++ Operator Filter 4
++ Operator Oscillator Levels 4
+```
+
+The **Auto-build best layout** button creates this stack for Operator. Duplicate targets are reported in Layout Health without blocking export.
+
+### Example: Custom layout
+
+```text
+Blank Custom 8
++ manual parameter assignment
+```
+
+Use this when the device-specific layouts do not match the intended hardware workflow.
 
 ## Quick Start
 
@@ -112,6 +146,15 @@ MIDI 0–127 → normalized 0.0–1.0 → parameter.min–parameter.max
 ```
 
 The script writes the target's actual Live value instead of blindly writing 0–127.
+
+Each mapping can also enable **Invert MIDI**:
+
+```text
+MIDI 0 → parameter.max
+MIDI 127 → parameter.min
+```
+
+The profile records `curve: "linear"` so future curve modes can be added without changing the schema.
 
 ## Known-good Operator demo
 

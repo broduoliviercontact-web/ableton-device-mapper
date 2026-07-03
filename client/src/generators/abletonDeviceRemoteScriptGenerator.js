@@ -22,13 +22,16 @@ export const createAbletonDeviceScriptSlug = (deviceName) => createScriptNaming(
   makeDefaultScriptName({ deviceName, controllerName: 'MIDI Controller' }),
 ).scriptSlug
 
-export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName }) {
+export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName, layoutStack = [], controlPool = [], mappingWarnings = [] }) {
   const fallback = makeDefaultScriptName({ deviceName: device.deviceName, controllerName })
   const naming = createScriptNaming(scriptDisplayName, fallback)
   return {
     schemaVersion: '0.1',
     mapperType: 'ableton_device',
     ...naming,
+    layoutStack,
+    controlPool,
+    mappingWarnings,
     target: {
       deviceName: device.deviceName,
       deviceCategory: device.deviceCategory,
@@ -39,7 +42,12 @@ export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName
     },
     mappings: mappings.map((mapping) => ({
       source: mapping.source,
-      controlType: 'continuous',
+      layoutId: mapping.layoutId || null,
+      layoutInstanceId: mapping.layoutInstanceId || null,
+      layoutName: mapping.layoutName || null,
+      createdBy: mapping.createdBy || 'manual',
+      userLabel: mapping.userLabel || mapping.source?.label || mapping.targetParameterName || 'Mapping',
+      controlType: mapping.controlType || 'continuous',
       targetType: 'ableton_device_parameter',
       targetDeviceName: device.deviceName,
       targetDeviceAliases: unique([device.deviceName, device.deviceClassName, ...(mapping.targetDeviceAliases || [])]),
@@ -49,17 +57,22 @@ export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName
       parameterIndex: mapping.parameterIndex ?? null,
       parameterSection: mapping.parameterSection || 'Unclassified',
       allowIndexFallback: mapping.allowIndexFallback === true,
-      scaling: 'parameter_min_max',
+      scaling: mapping.invert ? 'inverted_parameter_min_max' : (mapping.scaling || 'parameter_min_max'),
+      invert: mapping.invert === true,
+      curve: mapping.curve || 'linear',
     })),
   }
 }
 
 function buildPythonMappings(profile) {
-  return profile.mappings.map((mapping) => `        {"channel": ${mapping.source.frameworkChannel}, "cc": ${mapping.source.data1}, "control_type": "continuous", "type": "ableton_device_parameter", "device": ${pyString(mapping.targetDeviceName)}, "device_aliases": ${JSON.stringify(mapping.targetDeviceAliases)}, "parameter": ${pyString(mapping.targetParameterName)}, "parameter_aliases": ${JSON.stringify(mapping.parameterAliases)}, "parameter_index": ${mapping.parameterIndex == null ? 'None' : Number(mapping.parameterIndex)}, "allow_index_fallback": ${pyBoolean(mapping.allowIndexFallback)}, "scaling": "parameter_min_max"}`).join(',\n')
+  return profile.mappings
+    .filter((mapping) => mapping.source && mapping.targetParameterName)
+    .map((mapping) => `        {"channel": ${mapping.source.frameworkChannel}, "cc": ${mapping.source.data1}, "control_type": ${pyString(mapping.controlType)}, "type": "ableton_device_parameter", "device": ${pyString(mapping.targetDeviceName)}, "device_aliases": ${JSON.stringify(mapping.targetDeviceAliases)}, "parameter": ${pyString(mapping.targetParameterName)}, "parameter_aliases": ${JSON.stringify(mapping.parameterAliases)}, "parameter_index": ${mapping.parameterIndex == null ? 'None' : Number(mapping.parameterIndex)}, "allow_index_fallback": ${pyBoolean(mapping.allowIndexFallback)}, "scaling": ${pyString(mapping.scaling)}, "invert": ${pyBoolean(mapping.invert)}, "curve": ${pyString(mapping.curve)}}`)
+    .join(',\n')
 }
 
-export function generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName }) {
-  const profile = createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName })
+export function generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName, layoutStack = [], controlPool = [], mappingWarnings = [] }) {
+  const profile = createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName, layoutStack, controlPool, mappingWarnings })
   const { scriptSlug, pythonClassName } = profile
   const buildId = createBuildId(profile)
   const initPy = `from .${scriptSlug} import ${pythonClassName}\n\n\ndef create_instance(c_instance):\n    return ${pythonClassName}(c_instance)\n`
@@ -120,7 +133,7 @@ ${buildPythonMappings(profile)}
             parameter = self._find_parameter(mapping)
             if parameter is None:
                 return
-            scaled_value = self._scale_midi_to_parameter(value, parameter)
+            scaled_value = self._scale_midi_to_parameter(value, parameter, mapping.get("invert", False))
             parameter.value = scaled_value
             self._log("parameter updated: {} value={} scaled={}".format(parameter.name, value, scaled_value))
         return listener
@@ -201,11 +214,13 @@ ${buildPythonMappings(profile)}
         self._log("safe fallback accepted: target={} index={} resolved={}".format(mapping["parameter"], index, fallback_parameter.name))
         return fallback_parameter
 
-    def _scale_midi_to_parameter(self, midi_value, parameter):
+    def _scale_midi_to_parameter(self, midi_value, parameter, invert=False):
         try:
             minimum = float(parameter.min)
             maximum = float(parameter.max)
             normalized = max(0.0, min(1.0, float(midi_value) / 127.0))
+            if invert:
+                normalized = 1.0 - normalized
             return minimum + ((maximum - minimum) * normalized)
         except Exception:
             return max(0.0, min(1.0, float(midi_value) / 127.0))
