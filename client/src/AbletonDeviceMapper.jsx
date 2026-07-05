@@ -3,6 +3,18 @@ import catalog from './data/abletonDeviceParameterCatalog.json'
 import { DEVICE_CATEGORIES, findCatalogDevice, getCatalogDevices, getRecommendedParameters } from './data/abletonDeviceCatalog.js'
 import { getBestLayoutIds, getLayoutById, getLayoutsForDevice } from './data/abletonDeviceLayouts.js'
 import { buildAbletonDeviceMapperPack, createAbletonDeviceTerminalCommands } from './generators/abletonDevicePackGenerator.js'
+import ControllerLayoutPreview from './components/ControllerLayoutPreview.jsx'
+import TerminalControllerLayoutPreview from './components/TerminalControllerLayoutPreview.jsx'
+import {
+  addCustomControl,
+  assignMidiSourceToMapping,
+  createCustomLayout,
+  removeCustomControl,
+  removeCustomLayout,
+  renameCustomLayout,
+  updateAssignedMidiValues,
+  updateCustomControl,
+} from './utils/customLayoutBuilder.js'
 import { createScriptNaming, makeDefaultScriptName } from './utils/scriptNaming.js'
 import {
   addLayoutToBuilder,
@@ -69,6 +81,7 @@ export default function AbletonDeviceMapper() {
   const midiSupported = typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator
   const midiAccessRef = useRef(null)
   const controlsRef = useRef([])
+  const mappingsRef = useRef([])
   const importInputRef = useRef(null)
   const instanceCounter = useRef(0)
 
@@ -84,6 +97,11 @@ export default function AbletonDeviceMapper() {
   const [deviceKey, setDeviceKey] = useState(initialDevice.catalogKey)
   const [layoutStack, setLayoutStack] = useState([])
   const [mappings, setMappings] = useState([])
+  const [customLayouts, setCustomLayouts] = useState([])
+  const [layoutMode, setLayoutMode] = useState('custom')
+  const [customLayoutName, setCustomLayoutName] = useState('My Custom Operator Layout')
+  const [customCounts, setCustomCounts] = useState({ faders: 2, knobs: 3, buttons: 1 })
+  const [selectedVisualMappingId, setSelectedVisualMappingId] = useState('')
   const [selectedLayoutId, setSelectedLayoutId] = useState('operator-musical-8')
   const [previewLayout, setPreviewLayout] = useState(null)
   const [includeButtonLayouts, setIncludeButtonLayouts] = useState(false)
@@ -93,6 +111,10 @@ export default function AbletonDeviceMapper() {
   const [lastExportedSlug, setLastExportedSlug] = useState('')
   const [scriptName, setScriptName] = useState(() => makeDefaultScriptName({ deviceName: initialDevice.deviceName, controllerName: 'MIDI Controller' }))
   const [scriptNameTouched, setScriptNameTouched] = useState(false)
+  const [uiTheme, setUiTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'normal'
+    try { return window.localStorage.getItem('ableton-device-mapper-theme') === 'terminal' ? 'terminal' : 'normal' } catch { return 'normal' }
+  })
 
   const selectedDevice = devices.find((device) => device.catalogKey === deviceKey) || initialDevice
   const filteredDevices = devices.filter((device) => device.deviceCategory === category && (!deviceSearch.trim() || `${device.deviceName} ${device.deviceClassName}`.toLowerCase().includes(deviceSearch.trim().toLowerCase())))
@@ -107,8 +129,25 @@ export default function AbletonDeviceMapper() {
   const scriptNameTooLong = scriptNaming.scriptDisplayName.length > 64
   const readiness = [Boolean(scriptNaming.scriptSlug), controls.length > 0, Boolean(selectedDevice), layoutStack.length > 0, mappings.length > 0, mappings.length > 0]
 
-  useEffect(() => { document.title = 'Ableton Device Mapper' }, [])
+  useEffect(() => {
+    const terminal = uiTheme === 'terminal'
+    document.title = terminal ? 'Ableton Device Mapper — Terminal Edition' : 'Ableton Device Mapper'
+    document.documentElement.dataset.uiTheme = uiTheme
+    let stylesheet = document.getElementById('terminal-theme-stylesheet')
+    if (!stylesheet) {
+      stylesheet = document.createElement('link')
+      stylesheet.id = 'terminal-theme-stylesheet'
+      stylesheet.rel = 'stylesheet'
+      stylesheet.href = `${import.meta.env.BASE_URL}terminal-edition.css`
+      stylesheet.media = terminal ? 'all' : 'not all'
+      document.head.appendChild(stylesheet)
+    }
+    stylesheet.disabled = false
+    stylesheet.media = terminal ? 'all' : 'not all'
+    try { window.localStorage.setItem('ableton-device-mapper-theme', uiTheme) } catch { /* local storage can be disabled */ }
+  }, [uiTheme])
   useEffect(() => { controlsRef.current = controls }, [controls])
+  useEffect(() => { mappingsRef.current = mappings }, [mappings])
   useEffect(() => { if (!scriptNameTouched) setScriptName(defaultScriptName) }, [defaultScriptName, scriptNameTouched])
   useEffect(() => {
     if (!layouts.some((layout) => layout.id === selectedLayoutId)) setSelectedLayoutId(layouts[0]?.id || '')
@@ -141,11 +180,17 @@ export default function AbletonDeviceMapper() {
       const frameworkChannel = status & 0x0f
       const id = `${input.name}-${frameworkChannel}-${data1}`
       const knownControl = controlsRef.current.find((control) => control.id === id)
-      const source = { ...(knownControl || {}), id, endpointName: input.name || 'Unnamed MIDI input', userChannel: frameworkChannel + 1, frameworkChannel, data1, lastValue: data2, controlKind: knownControl?.controlKind || 'knob', label: knownControl?.label || `CC ${data1}` }
+      const learningMapping = mappingsRef.current.find((mapping) => mapping.id === learningMappingId)
+      const learnedKind = learningMapping?.preferredControlKind || knownControl?.controlKind || 'knob'
+      const source = { ...(knownControl || {}), id, endpointName: input.name || 'Unnamed MIDI input', userChannel: frameworkChannel + 1, frameworkChannel, data1, lastValue: data2, controlKind: learnedKind, label: knownControl?.label || `CC ${data1}` }
       setLastMessage({ ...source, data2, timestamp: event.timeStamp })
-      setControls((current) => current.some((control) => control.id === id) ? current.map((control) => control.id === id ? { ...control, lastValue: data2 } : control) : [...current, source])
+      setControls((current) => current.some((control) => control.id === id) ? current.map((control) => control.id === id ? { ...control, ...source } : control) : [...current, source])
+      setMappings((current) => {
+        const liveMappings = updateAssignedMidiValues(current, source, data2)
+        return learningMappingId ? assignMidiSourceToMapping(liveMappings, learningMappingId, source) : liveMappings
+      })
       if (learningMappingId) {
-        setMappings((current) => current.map((mapping) => mapping.id === learningMappingId ? { ...mapping, source: { ...source } } : mapping))
+        setSelectedVisualMappingId(learningMappingId)
         setLearningMappingId('')
       }
     }
@@ -156,12 +201,40 @@ export default function AbletonDeviceMapper() {
   const nextInstanceId = (layoutId) => { instanceCounter.current += 1; return `${layoutId}-${Date.now()}-${instanceCounter.current}` }
   const builderState = () => ({ layoutStack, mappings })
   const commitBuilder = (next) => { setLayoutStack(next.layoutStack); setMappings(next.mappings) }
+  const customState = () => ({ layoutStack, mappings, customLayouts })
+  const commitCustomState = (next) => { setLayoutStack(next.layoutStack); setMappings(next.mappings); setCustomLayouts(next.customLayouts) }
+
+  const buildCustomLayout = () => {
+    const created = createCustomLayout({ name: customLayoutName, ...customCounts, device: selectedDevice })
+    setLayoutStack((current) => [...current, created.layoutEntry])
+    setMappings((current) => [...current, ...created.mappings])
+    setCustomLayouts((current) => [...current, created.customLayout])
+    setSelectedVisualMappingId(created.mappings[0]?.id || '')
+  }
+  const addVisualControl = (layoutInstanceId, kind) => {
+    const next = addCustomControl(customState(), { layoutInstanceId, kind, device: selectedDevice })
+    commitCustomState(next)
+    const newest = next.mappings[next.mappings.length - 1]
+    if (newest?.createdBy === 'custom_layout') setSelectedVisualMappingId(newest.id)
+  }
+  const removeVisualControl = (visualControlId) => {
+    const next = removeCustomControl(customState(), visualControlId)
+    commitCustomState(next)
+    setSelectedVisualMappingId(next.mappings.find((mapping) => mapping.createdBy === 'custom_layout')?.id || '')
+  }
+  const updateVisualControl = (visualControlId, patch) => commitCustomState(updateCustomControl(customState(), visualControlId, patch))
+  const renameVisualLayout = (layoutInstanceId, name) => commitCustomState(renameCustomLayout(customState(), layoutInstanceId, name))
+  const removeLayout = (layoutInstanceId) => {
+    if (customLayouts.some((layout) => layout.layoutInstanceId === layoutInstanceId)) commitCustomState(removeCustomLayout(customState(), layoutInstanceId))
+    else commitBuilder(removeLayoutFromBuilder(builderState(), layoutInstanceId))
+  }
 
   const applyLayout = (mode = 'add') => {
     const layout = getLayoutById(selectedDevice.deviceName, selectedLayoutId)
     if (!layout) return
     if (mode === 'preview') { setPreviewLayout({ layout, controls: resolveLayoutControls(layout, selectedDevice) }); return }
     const options = { layout, device: selectedDevice, controls, instanceId: nextInstanceId(layout.id) }
+    if (mode === 'replace') setCustomLayouts([])
     commitBuilder(mode === 'replace' ? replaceBuilderWithLayout(builderState(), options) : addLayoutToBuilder(builderState(), options))
     setPreviewLayout(null); setActiveStep(4)
   }
@@ -172,10 +245,17 @@ export default function AbletonDeviceMapper() {
       const layout = getLayoutById(selectedDevice.deviceName, layoutId)
       if (layout) next = addLayoutToBuilder(next, { layout, device: selectedDevice, controls, instanceId: nextInstanceId(layout.id) })
     }
-    commitBuilder(next); setActiveStep(4)
+    setCustomLayouts([]); commitBuilder(next); setActiveStep(4)
   }
 
-  const updateMapping = (id, patch) => setMappings((current) => current.map((mapping) => mapping.id === id ? { ...mapping, ...patch } : mapping))
+  const updateMapping = (id, patch) => {
+    const mapping = mappingsRef.current.find((candidate) => candidate.id === id)
+    const visualLabel = patch.userLabel ?? patch.visualControlLabel
+    if (mapping?.createdBy === 'custom_layout' && visualLabel != null) {
+      setCustomLayouts((current) => current.map((layout) => ({ ...layout, controls: layout.controls.map((control) => control.mappingId === id ? { ...control, label: visualLabel } : control) })))
+    }
+    setMappings((current) => current.map((candidate) => candidate.id === id ? { ...candidate, ...patch, ...(visualLabel != null ? { userLabel: visualLabel, visualControlLabel: visualLabel } : {}) } : candidate))
+  }
   const chooseParameter = (mapping, name) => {
     const parameter = selectedDevice.parameters.find((candidate) => candidate.name === name)
     updateMapping(mapping.id, parameter ? { targetParameterName: parameter.name, parameterAliases: [parameter.name], parameterIndex: parameter.parameterIndex, liveIndex: parameter.liveIndex, parameterSection: parameter.section || 'Unclassified', parameterRisk: parameter.risk || 'unknown', ...(mapping.createdBy === 'manual' && isButtonLikeParameter(parameter) ? { controlType: 'button', preferredControlKind: 'button', buttonMode: mapping.buttonMode || 'toggle_in_script' } : {}) } : { targetParameterName: '', parameterAliases: [], parameterIndex: null, liveIndex: null, parameterSection: 'Unassigned' })
@@ -185,9 +265,20 @@ export default function AbletonDeviceMapper() {
     const mapping = mappings.find((candidate) => candidate.id === mappingId)
     updateMapping(mappingId, { source, ...(mapping?.controlType === 'button' ? { buttonId: source ? `${source.frameworkChannel}:${source.data1}` : '' } : {}) })
   }
-  const setControlType = (mapping, controlType) => updateMapping(mapping.id, controlType === 'button'
-    ? { controlType, preferredControlKind: 'button', buttonMode: mapping.buttonMode || 'toggle_in_script', buttonId: mapping.source ? `${mapping.source.frameworkChannel}:${mapping.source.data1}` : '' }
-    : { controlType, preferredControlKind: mapping.source?.controlKind === 'fader' ? 'fader' : 'knob', buttonMode: null, buttonId: null })
+  const setControlType = (mapping, controlType) => {
+    if (mapping.createdBy === 'custom_layout' && mapping.visualControlId) {
+      updateVisualControl(mapping.visualControlId, { kind: controlType === 'button' ? 'button' : (mapping.visualControlKind === 'fader' ? 'fader' : 'knob') })
+      return
+    }
+    updateMapping(mapping.id, controlType === 'button'
+      ? { controlType, preferredControlKind: 'button', buttonMode: mapping.buttonMode || 'toggle_in_script', buttonId: mapping.source ? `${mapping.source.frameworkChannel}:${mapping.source.data1}` : '' }
+      : { controlType, preferredControlKind: mapping.source?.controlKind === 'fader' ? 'fader' : 'knob', buttonMode: null, buttonId: null })
+  }
+  const removeMapping = (mappingId) => {
+    const mapping = mappings.find((candidate) => candidate.id === mappingId)
+    if (mapping?.createdBy === 'custom_layout' && mapping.visualControlId) removeVisualControl(mapping.visualControlId)
+    else setMappings((current) => current.filter((candidate) => candidate.id !== mappingId))
+  }
   const addManualMapping = () => {
     const usedParameters = new Set(mappings.map((mapping) => mapping.targetParameterName))
     const parameter = recommended.find((item) => !usedParameters.has(item.name)) || recommended[0]
@@ -196,7 +287,7 @@ export default function AbletonDeviceMapper() {
   }
 
   const exportProfile = () => {
-    const profile = createPortableProfile({ scriptName: scriptNaming.scriptDisplayName, targetDeviceKey: selectedDevice.catalogKey, layoutStack, mappings, controlPool })
+    const profile = createPortableProfile({ scriptName: scriptNaming.scriptDisplayName, targetDeviceKey: selectedDevice.catalogKey, layoutStack, mappings, controlPool, customLayouts })
     const blob = new Blob([`${JSON.stringify(profile, null, 2)}\n`], { type: 'application/json' })
     const url = URL.createObjectURL(blob); const anchor = document.createElement('a')
     anchor.href = url; anchor.download = `${scriptNaming.scriptSlug}_Profile.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -209,7 +300,7 @@ export default function AbletonDeviceMapper() {
       const profile = parsePortableProfile(await file.text())
       const device = devices.find((item) => item.catalogKey === profile.targetDeviceKey) || selectedDevice
       setCategory(device.deviceCategory); setDeviceKey(device.catalogKey); setScriptName(profile.scriptName || defaultScriptName); setScriptNameTouched(true)
-      setLayoutStack(profile.layoutStack); setMappings(profile.mappings); setControls(profile.controlPool.map(stripPoolFields)); setProfileMessage(`Imported ${file.name}`); setActiveStep(4)
+      setLayoutStack(profile.layoutStack); setMappings(profile.mappings); setCustomLayouts(profile.customLayouts); setControls(profile.controlPool.map(stripPoolFields)); setSelectedVisualMappingId(profile.mappings.find((mapping) => mapping.createdBy === 'custom_layout')?.id || ''); setProfileMessage(`Imported ${file.name}`); setActiveStep(4)
     } catch (error) { setProfileMessage(error.message) }
     event.target.value = ''
   }
@@ -217,35 +308,58 @@ export default function AbletonDeviceMapper() {
   const exportPack = async () => {
     setIsExporting(true)
     try {
-      const { zip, scriptSlug } = buildAbletonDeviceMapperPack({ device: selectedDevice, mappings, inputName, scriptDisplayName: scriptNaming.scriptDisplayName, layoutStack, controlPool, mappingWarnings: warnings })
+      const { zip, scriptSlug } = buildAbletonDeviceMapperPack({ device: selectedDevice, mappings, inputName, scriptDisplayName: scriptNaming.scriptDisplayName, layoutStack, controlPool, customLayouts, mappingWarnings: warnings })
       const blob = await zip.generateAsync({ type: 'blob', platform: 'UNIX' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a')
       anchor.href = url; anchor.download = `${scriptSlug}_Pack.zip`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setLastExportedSlug(scriptSlug)
     } finally { setIsExporting(false) }
   }
 
-  return <div className="app-shell native-mapper">
+  const LayoutPreview = uiTheme === 'terminal' ? TerminalControllerLayoutPreview : ControllerLayoutPreview
+  const controllerDesigner = <LayoutPreview
+    customLayouts={customLayouts}
+    mappings={mappings}
+    warnings={warnings}
+    selectedMappingId={selectedVisualMappingId}
+    learningMappingId={learningMappingId}
+    device={selectedDevice}
+    onSelect={setSelectedVisualMappingId}
+    onLearn={(mappingId) => { setSelectedVisualMappingId(mappingId); setLearningMappingId((current) => current === mappingId ? '' : mappingId) }}
+    onUnassign={(mappingId) => setMappings((current) => assignMidiSourceToMapping(current, mappingId, null))}
+    onAddControl={addVisualControl}
+    onRemoveControl={removeVisualControl}
+    onRenameLayout={renameVisualLayout}
+    onUpdateControl={updateVisualControl}
+    onUpdateMapping={updateMapping}
+    onChooseParameter={chooseParameter}
+  />
+
+  const terminalTheme = uiTheme === 'terminal'
+  return <div className={`app-shell native-mapper ui-theme-${uiTheme}`}>
     <div className="ambient-grid"/>
-    <header className="topbar"><a className="brand" href="/" aria-label="Ableton Device Mapper home"><span className="brand__mark"><i/><i/><i/><i/></span><span>Ableton <strong>Device Mapper</strong></span></a><div className="signal-chain"><span>Control Pool</span><b>+</b><span>Layout Stack</span><b>→</b><span>Remote Script</span></div><div className="catalog-status"><span>LIVE {catalog.abletonVersion}</span><Badge>{catalog.deviceCount} DEVICES</Badge></div></header>
+    <ThemeSwitcher theme={uiTheme} onChange={setUiTheme}/>
+    {terminalTheme ? <header className="topbar ascii-boot-header"><a className="brand" href="/" aria-label="Ableton Device Mapper home"><span>C:\&gt; RUN ABLETON_DEVICE_MAPPER.EXE</span></a><div className="signal-chain"><span>&gt; STATUS: READY</span><span>&gt; MODE: NATIVE_DEVICE_REMOTE_SCRIPT</span><span>&gt; MIDI_API: WEB_MIDI</span></div><div className="catalog-status"><span>&gt; LIVE_VERSION: {catalog.abletonVersion}</span><span>&gt; DEVICE_CATALOG: {catalog.deviceCount}</span><span className="ascii-cursor" aria-hidden="true">_</span></div></header> : <header className="topbar"><a className="brand" href="/" aria-label="Ableton Device Mapper home"><span className="brand__mark"><i/><i/><i/><i/></span><span>Ableton <strong>Device Mapper</strong></span></a><div className="signal-chain"><span>Control Pool</span><b>+</b><span>Layout Stack</span><b>→</b><span>Remote Script</span></div><div className="catalog-status"><span>LIVE {catalog.abletonVersion}</span><Badge>{catalog.deviceCount} DEVICES</Badge></div></header>}
     <main id="top">
-      <section className="hero native-hero"><div className="eyebrow"><span className="live-dot"/> MODULAR LAYOUT BUILDER / CATALOG-DRIVEN</div><h1>Stack controls.<br/><em>Build your surface.</em></h1><p>Add musical layouts like building blocks, assign captured hardware intelligently, then export one coherent Ableton Remote Script.</p></section>
+      {terminalTheme ? <section className="hero native-hero ascii-hero"><pre className="ascii-pre ascii-hero-rule" aria-hidden="true">+------------------------------------------------------------------------------+</pre><div className="eyebrow">| ABLETON DEVICE MAPPER / ASCII CONTROL TERMINAL</div><h1><span>| ROUTE MIDI.</span><br/><em>| COMPILE REMOTE SCRIPT.</em></h1><p>| Compose a MIDI surface, assign native Ableton parameters, then export an installable ZIP pack.</p><div className="hero-readout"><span>[SYS:READY]</span><span>[CATALOG:{catalog.deviceCount}]</span><span>[PARAMETERS:{catalog.totalParameters}]</span><span>[BUILD:NATIVE]</span></div><pre className="ascii-pre ascii-hero-rule" aria-hidden="true">+------------------------------------------------------------------------------+</pre></section> : <section className="hero native-hero"><div className="eyebrow"><span className="live-dot"/> MODULAR LAYOUT BUILDER / CATALOG-DRIVEN</div><h1>Stack controls.<br/><em>Build your surface.</em></h1><p>Add musical layouts like building blocks, assign captured hardware intelligently, then export one coherent Ableton Remote Script.</p></section>}
       <nav className="stepper stepper--six" aria-label="Builder steps">{STEPS.map((label, index) => <button key={label} className={`step ${activeStep === index ? 'step--active' : ''}`} onClick={() => setActiveStep(index)}><span className="step__number">0{index + 1}</span><span className="step__icon"><Icon name={['name','midi','target','layout','route','export'][index]}/></span><span className="step__label">{label}</span><Badge status={readiness[index] ? 'ready' : 'missing'}>{readiness[index] ? 'READY' : 'MISSING'}</Badge></button>)}</nav>
       <section className="workspace">
         {activeStep === 0 && <article className="panel"><PanelHeader index="01" title="Script Name" subtitle="Give this Control Surface a readable, reusable identity."/><ScriptNameCard scriptName={scriptName} setScriptName={(value) => { setScriptName(value); setScriptNameTouched(true) }} reset={() => { setScriptName(defaultScriptName); setScriptNameTouched(false) }} naming={scriptNaming} tooLong={scriptNameTooLong}/><div className="panel-actions"><button className="primary-button" onClick={() => setActiveStep(1)}>Connect controller →</button></div></article>}
 
         {activeStep === 1 && <div className="panel-layout"><article className="panel"><PanelHeader index="02" title="Connect MIDI Controller" subtitle="Capture controls into a reusable MIDI Control Pool."/><div className="connect-row"><button className="primary-button" onClick={enableMidi} disabled={!midiSupported || midiStatus === 'requesting'}><Icon name="midi"/>{midiStatus === 'requesting' ? 'Requesting…' : 'Enable MIDI'}</button><label className="field field--grow"><span>MIDI INPUT</span><select value={selectedInputId} onChange={(event) => setSelectedInputId(event.target.value)} disabled={!inputs.length}><option value="">{inputs.length ? 'Choose input' : 'No input detected'}</option>{inputs.map((input) => <option key={input.id} value={input.id}>{input.name}</option>)}</select></label></div>{midiError&&<p className="error-note">{midiError}</p>}<MessageMonitor message={lastMessage} learning={Boolean(learningMappingId)}/></article><aside className="panel"><PanelHeader title="MIDI Control Pool" subtitle={`${controlPool.filter((item) => !item.assigned).length} free · ${controlPool.filter((item) => item.assigned).length} assigned`}/><ControlPool controls={controlPool} update={(id, patch) => setControls((current) => current.map((control) => control.id === id ? { ...control, ...patch } : control))}/></aside></div>}
 
-        {activeStep === 2 && <article className="panel"><PanelHeader index="03" title="Choose Ableton Device" subtitle="Layouts resolve against exact Live catalog parameter names."/><div className="device-picker-grid"><div className="device-picker-controls"><label className="field"><span>CATEGORY</span><select value={category} onChange={(event) => { const nextCategory=event.target.value; const device=devices.find((item)=>item.deviceCategory===nextCategory); setCategory(nextCategory); if(device){setDeviceKey(device.catalogKey);setLayoutStack([]);setMappings([])} }}>{DEVICE_CATEGORIES.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label className="field"><span>SEARCH DEVICE</span><input value={deviceSearch} onChange={(event)=>setDeviceSearch(event.target.value)} placeholder="Operator, EQ Eight, Roar…"/></label><label className="field"><span>DEVICE</span><select aria-label="Ableton device" value={deviceKey} onChange={(event)=>{const device=devices.find((item)=>item.catalogKey===event.target.value);if(device){setDeviceKey(device.catalogKey);setLayoutStack([]);setMappings([])}}}>{filteredDevices.map((device)=><option key={device.catalogKey} value={device.catalogKey}>{device.deviceName}</option>)}</select></label></div><div className="device-dossier"><span className="dossier-kicker">NATIVE DEVICE DOSSIER</span><h2>{selectedDevice.deviceName}</h2><div className="dossier-metrics"><div><small>CLASS</small><strong>{selectedDevice.deviceClassName}</strong></div><div><small>PARAMETERS</small><strong>{selectedDevice.parameterCount}</strong></div><div><small>LAYOUTS</small><strong>{layouts.length}</strong></div></div></div></div><div className="panel-actions"><button className="primary-button" onClick={()=>setActiveStep(3)}>Add layouts →</button></div></article>}
+        {activeStep === 2 && <article className="panel"><PanelHeader index="03" title="Choose Ableton Device" subtitle="Layouts resolve against exact Live catalog parameter names."/><div className="device-picker-grid"><div className="device-picker-controls"><label className="field"><span>CATEGORY</span><select value={category} onChange={(event) => { const nextCategory=event.target.value; const device=devices.find((item)=>item.deviceCategory===nextCategory); setCategory(nextCategory); if(device){setDeviceKey(device.catalogKey);setLayoutStack([]);setMappings([]);setCustomLayouts([])} }}>{DEVICE_CATEGORIES.map((item)=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label className="field"><span>SEARCH DEVICE</span><input value={deviceSearch} onChange={(event)=>setDeviceSearch(event.target.value)} placeholder="Operator, EQ Eight, Roar…"/></label><label className="field"><span>DEVICE</span><select aria-label="Ableton device" value={deviceKey} onChange={(event)=>{const device=devices.find((item)=>item.catalogKey===event.target.value);if(device){setDeviceKey(device.catalogKey);setLayoutStack([]);setMappings([]);setCustomLayouts([])}}}>{filteredDevices.map((device)=><option key={device.catalogKey} value={device.catalogKey}>{device.deviceName}</option>)}</select></label></div><div className="device-dossier"><span className="dossier-kicker">NATIVE DEVICE DOSSIER</span><h2>{selectedDevice.deviceName}</h2><div className="dossier-metrics"><div><small>CLASS</small><strong>{selectedDevice.deviceClassName}</strong></div><div><small>PARAMETERS</small><strong>{selectedDevice.parameterCount}</strong></div><div><small>LAYOUTS</small><strong>{layouts.length}</strong></div></div></div></div><div className="panel-actions"><button className="primary-button" onClick={()=>setActiveStep(3)}>Add layouts →</button></div></article>}
 
-        {activeStep === 3 && <article className="panel"><PanelHeader index="04" title="Add Layouts" subtitle="Add modules by default; replace or preview only when needed."/><div className="layout-builder-toolbar"><label className="include-buttons-check"><input type="checkbox" checked={includeButtonLayouts} onChange={(event)=>setIncludeButtonLayouts(event.target.checked)}/><span><strong>Include button layouts</strong><small>Add performance switches to Auto-build.</small></span></label><button className="auto-build-button" onClick={autoBuild}>Auto-build best layout</button><button className="secondary-button" onClick={()=>{setLayoutStack([]);setMappings([])}}>Clear mapping</button></div><div className="layout-builder-grid"><div><h3 className="subsection-title">Available Layouts</h3><div className="preset-grid layout-catalog">{layouts.map((layout)=><button key={layout.id} className={`preset-card ${selectedLayoutId===layout.id?'preset-card--active':''}`} onClick={()=>setSelectedLayoutId(layout.id)}><span>{String(layout.controlCount).padStart(2,'0')}</span><strong>{layout.name}</strong><small>{layout.description}</small></button>)}</div><div className="layout-actions"><button className="primary-button" onClick={()=>applyLayout('add')}>Add layout</button><button className="secondary-button" onClick={()=>applyLayout('replace')}>Replace mapping</button><button className="secondary-button" onClick={()=>applyLayout('preview')}>Preview only</button></div>{previewLayout&&<div className="layout-preview-list"><strong>{previewLayout.layout.name}</strong>{previewLayout.controls.map((control,index)=><span key={`${control.parameterName}-${index}`}>{control.preferredControlKind} → {control.parameterName||'Unassigned parameter'}</span>)}</div>}</div><LayoutStack stack={layoutStack} warnings={warnings} onRemove={(id)=>commitBuilder(removeLayoutFromBuilder(builderState(),id))} onMove={(id,direction)=>commitBuilder(moveLayoutInStack(builderState(),id,direction))}/></div></article>}
+        {activeStep === 3 && <article className="panel"><PanelHeader index="04" title="Design MIDI Layout" subtitle="Draw your hardware surface first, then decide what every control should move."/><div className="layout-mode-tabs"><button className={layoutMode==='custom'?'active':''} onClick={()=>setLayoutMode('custom')}>Custom Layout</button><button className={layoutMode==='presets'?'active':''} onClick={()=>setLayoutMode('presets')}>Preset Layouts <small>Advanced</small></button></div>{layoutMode==='custom'?<><div className="custom-layout-creator"><label className="field custom-name-field"><span>LAYOUT NAME</span><input aria-label="Layout name" value={customLayoutName} onChange={(event)=>setCustomLayoutName(event.target.value)}/></label>{[['faders','FADERS'],['knobs','KNOBS'],['buttons','BUTTONS']].map(([key,label])=><label className="field" key={key}><span>{label}</span><input aria-label={`Number of ${key}`} type="number" min="0" max="32" value={customCounts[key]} onChange={(event)=>setCustomCounts((current)=>({...current,[key]:event.target.value}))}/></label>)}<button className="primary-button" onClick={buildCustomLayout}>Create custom layout</button></div>{controllerDesigner}<div className="custom-layout-stack"><LayoutStack stack={layoutStack} warnings={warnings} onRemove={removeLayout} onMove={(id,direction)=>commitBuilder(moveLayoutInStack(builderState(),id,direction))} onRename={renameVisualLayout}/></div></>:<><div className="layout-builder-toolbar"><label className="include-buttons-check"><input type="checkbox" checked={includeButtonLayouts} onChange={(event)=>setIncludeButtonLayouts(event.target.checked)}/><span><strong>Include button layouts</strong><small>Add performance switches to Auto-build.</small></span></label><button className="auto-build-button" onClick={autoBuild}>Auto-build best layout</button><button className="secondary-button" onClick={()=>{setLayoutStack([]);setMappings([]);setCustomLayouts([])}}>Clear mapping</button></div><div className="layout-builder-grid"><div><h3 className="subsection-title">Available Layouts</h3><div className="preset-grid layout-catalog">{layouts.map((layout)=><button key={layout.id} className={`preset-card ${selectedLayoutId===layout.id?'preset-card--active':''}`} onClick={()=>setSelectedLayoutId(layout.id)}><span>{String(layout.controlCount).padStart(2,'0')}</span><strong>{layout.name}</strong><small>{layout.description}</small></button>)}</div><div className="layout-actions"><button className="primary-button" onClick={()=>applyLayout('add')}>Add layout</button><button className="secondary-button" onClick={()=>applyLayout('replace')}>Replace mapping</button><button className="secondary-button" onClick={()=>applyLayout('preview')}>Preview only</button></div>{previewLayout&&<div className="layout-preview-list"><strong>{previewLayout.layout.name}</strong>{previewLayout.controls.map((control,index)=><span key={`${control.parameterName}-${index}`}>{control.preferredControlKind} → {control.parameterName||'Unassigned parameter'}</span>)}</div>}</div><LayoutStack stack={layoutStack} warnings={warnings} onRemove={removeLayout} onMove={(id,direction)=>commitBuilder(moveLayoutInStack(builderState(),id,direction))} onRename={renameVisualLayout}/></div></>}</article>}
 
-        {activeStep === 4 && <article className="panel"><PanelHeader index="05" title="Configure Mapping" subtitle="Edit grouped routes, sources, parameters, scaling, and conflict policy."/><HealthSummary health={health}/><div className="mapping-toolbar"><span>{mappings.length} ACTIVE ROUTES</span><div><button className="secondary-button" onClick={addManualMapping}>+ Manual mapping</button><button className="secondary-button" onClick={exportProfile}>Export Profile JSON</button><button className="secondary-button" onClick={()=>importInputRef.current?.click()}>Import Profile JSON</button><input ref={importInputRef} type="file" accept="application/json,.json" hidden onChange={importProfile}/></div></div>{profileMessage&&<p className="profile-message">{profileMessage}</p>}<GroupedMappingMatrix mappings={mappings} stack={layoutStack} controls={controlPool} device={selectedDevice} warnings={warnings} learningMappingId={learningMappingId} updateMapping={updateMapping} setControlType={setControlType} chooseParameter={chooseParameter} assignSource={assignSource} learn={setLearningMappingId} remove={(id)=>setMappings((current)=>current.filter((mapping)=>mapping.id!==id))}/><div className="panel-actions"><button className="primary-button" disabled={!mappings.length} onClick={()=>setActiveStep(5)}>Review export →</button></div></article>}
+        {activeStep === 4 && <article className="panel"><PanelHeader index="05" title="Configure Mapping" subtitle="The visual surface and detailed matrix stay synchronized."/>{customLayouts.length>0&&<div className="configure-visual-designer">{controllerDesigner}</div>}<HealthSummary health={health}/><div className="mapping-toolbar"><span>{mappings.length} ACTIVE ROUTES</span><div><button className="secondary-button" onClick={addManualMapping}>+ Manual mapping</button><button className="secondary-button" onClick={exportProfile}>Export Profile JSON</button><button className="secondary-button" onClick={()=>importInputRef.current?.click()}>Import Profile JSON</button><input ref={importInputRef} type="file" accept="application/json,.json" hidden onChange={importProfile}/></div></div>{profileMessage&&<p className="profile-message">{profileMessage}</p>}<GroupedMappingMatrix mappings={mappings} stack={layoutStack} controls={controlPool} device={selectedDevice} warnings={warnings} learningMappingId={learningMappingId} updateMapping={updateMapping} setControlType={setControlType} chooseParameter={chooseParameter} assignSource={assignSource} learn={(id)=>{setLearningMappingId(id);setSelectedVisualMappingId(id)}} remove={removeMapping}/><div className="panel-actions"><button className="primary-button" disabled={!mappings.length} onClick={()=>setActiveStep(5)}>Review export →</button></div></article>}
 
         {activeStep === 5 && <article className="panel export-panel"><PanelHeader index="06" title="Export Ableton Device Pack" subtitle="Warnings remain visible but never block an intentional export."/><HealthSummary health={health}/><div className="export-layout"><div><div className="export-stamp"><Icon name="export"/><span>PACK STATUS</span><strong>{mappings.length?'READY TO BUILD':'WAITING FOR ROUTES'}</strong></div><h2>{scriptNaming.scriptSlug}</h2><p className="muted">{layoutStack.length} layouts · {mappings.length} mappings · {warnings.length} warnings</p><button className="export-button" onClick={exportPack} disabled={!mappings.length||isExporting}><Icon name="export"/>{isExporting?'Building ZIP…':'Download native device pack'}</button></div><NativeFileTree scriptSlug={scriptNaming.scriptSlug}/></div>{lastExportedSlug&&<NativeSetupWizard scriptSlug={lastExportedSlug} deviceName={selectedDevice.deviceName} inputName={inputName}/>}</article>}
       </section>
     </main>
-    <footer><span>ABLETON DEVICE MAPPER / LAYOUT BUILDER</span><span>STACK · ASSIGN · VERIFY · EXPORT</span><a href="https://deerflow.tech" target="_blank" rel="noreferrer">Created By Deerflow ↗</a></footer>
+    {terminalTheme ? <footer><span>ADM TERMINAL EDITION / CONTROL STATION</span><span>DESIGN · ROUTE · VERIFY · COMPILE</span><a href="https://deerflow.tech" target="_blank" rel="noreferrer">Created By Deerflow ↗</a></footer> : <footer><span>ABLETON DEVICE MAPPER / LAYOUT BUILDER</span><span>STACK · ASSIGN · VERIFY · EXPORT</span><a href="https://deerflow.tech" target="_blank" rel="noreferrer">Created By Deerflow ↗</a></footer>}
   </div>
 }
+
+function ThemeSwitcher({theme,onChange}) { return <div className="theme-switcher" role="group" aria-label="Interface style"><span>UI</span><button type="button" className={theme==='normal'?'active':''} aria-pressed={theme==='normal'} onClick={()=>onChange('normal')}>NORMAL</button><button type="button" className={theme==='terminal'?'active':''} aria-pressed={theme==='terminal'} onClick={()=>onChange('terminal')}>TERMINAL</button></div> }
 
 function PanelHeader({index,title,subtitle}) { return <div className="panel-header">{index&&<span className="panel-index">{index}</span>}<div><h2>{title}</h2><p>{subtitle}</p></div></div> }
 function EmptyState({title,body}) { return <div className="empty-state"><span className="pulse-ring"><i/></span><div><strong>{title}</strong><p>{body}</p></div></div> }
@@ -256,7 +370,7 @@ function MessageMonitor({message,learning}) { return <div className={`message-mo
 
 function ControlPool({controls,update}) { if(!controls.length)return <EmptyState title="Control pool empty" body="Captured knobs, faders, and buttons appear here."/>; return <div className="control-pool">{controls.map((control)=><div className={`pool-control ${control.assigned?'pool-control--assigned':''}`} key={control.id}><div><span className="cc-chip">CC {control.data1}</span><strong>{control.label}</strong></div><small>{control.assigned?`ASSIGNED × ${control.assignedMappingIds.length}`:'FREE'} · CH {control.userChannel}</small><select value={control.controlKind} onChange={(event)=>update(control.id,{controlKind:event.target.value})}><option value="knob">knob</option><option value="fader">fader</option><option value="button">button</option></select></div>)}</div> }
 
-function LayoutStack({stack,warnings,onRemove,onMove}) { return <aside className="layout-stack"><h3 className="subsection-title">Layout Stack</h3>{stack.length?stack.map((entry,index)=>{const conflicts=warnings.filter((warning)=>warning.mappingIds.some((id)=>id.startsWith(entry.layoutInstanceId))).length;return <div className="stack-entry" key={entry.layoutInstanceId}><span>{String(index+1).padStart(2,'0')}</span><div><strong>{entry.layoutName}</strong><small>{entry.controlCount} controls</small></div>{conflicts>0&&<Badge status="captured">{conflicts} conflicts</Badge>}<div className="stack-actions"><button onClick={()=>onMove(entry.layoutInstanceId,-1)} disabled={index===0}>↑</button><button onClick={()=>onMove(entry.layoutInstanceId,1)} disabled={index===stack.length-1}>↓</button><button onClick={()=>onRemove(entry.layoutInstanceId)}>×</button></div></div>}):<EmptyState title="Stack is empty" body="Select a layout and use Add layout."/>}</aside> }
+function LayoutStack({stack,warnings,onRemove,onMove,onRename}) { return <aside className="layout-stack"><h3 className="subsection-title">Layout Stack</h3>{stack.length?stack.map((entry,index)=>{const conflicts=warnings.filter((warning)=>warning.mappingIds.some((id)=>id.startsWith(entry.layoutInstanceId))).length;return <div className="stack-entry" key={entry.layoutInstanceId}><span>{String(index+1).padStart(2,'0')}</span><div>{entry.createdBy==='custom_layout'&&onRename?<input aria-label="Rename custom layout" value={entry.layoutName} onChange={(event)=>onRename(entry.layoutInstanceId,event.target.value)}/>:<strong>{entry.layoutName}</strong>}<small>{entry.controlCount} controls</small></div>{conflicts>0&&<Badge status="captured">{conflicts} conflicts</Badge>}<div className="stack-actions"><button onClick={()=>onMove(entry.layoutInstanceId,-1)} disabled={index===0}>↑</button><button onClick={()=>onMove(entry.layoutInstanceId,1)} disabled={index===stack.length-1}>↓</button><button onClick={()=>onRemove(entry.layoutInstanceId)}>×</button></div></div>}):<EmptyState title="Stack is empty" body="Create a custom layout or add a preset."/>}</aside> }
 
 function HealthSummary({health}) { return <div className="health-summary"><div><span>LAYOUT HEALTH</span><strong>{health.ok} mappings OK</strong></div><div><small>DUPLICATE MIDI</small><strong>{health.duplicateSources}</strong></div><div><small>DUPLICATE PARAMETERS</small><strong>{health.duplicateParameters}</strong></div><div><small>UNASSIGNED</small><strong>{health.unassigned}</strong></div><Badge status={health.totalWarnings?'captured':'ready'}>{health.totalWarnings} WARNINGS</Badge></div> }
 

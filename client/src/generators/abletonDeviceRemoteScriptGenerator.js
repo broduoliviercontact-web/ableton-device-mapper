@@ -22,7 +22,7 @@ export const createAbletonDeviceScriptSlug = (deviceName) => createScriptNaming(
   makeDefaultScriptName({ deviceName, controllerName: 'MIDI Controller' }),
 ).scriptSlug
 
-export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName, layoutStack = [], controlPool = [], mappingWarnings = [] }) {
+export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName, layoutStack = [], controlPool = [], customLayouts = [], mappingWarnings = [] }) {
   const fallback = makeDefaultScriptName({ deviceName: device.deviceName, controllerName })
   const naming = createScriptNaming(scriptDisplayName, fallback)
   return {
@@ -31,6 +31,7 @@ export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName
     ...naming,
     layoutStack,
     controlPool,
+    customLayouts,
     mappingWarnings,
     target: {
       deviceName: device.deviceName,
@@ -51,6 +52,9 @@ export function createAbletonDeviceProfile({ device, mappings, scriptDisplayName
       buttonMode: mapping.controlType === 'button' ? (mapping.buttonMode || 'momentary') : null,
       buttonId: mapping.controlType === 'button' ? (mapping.buttonId || (mapping.source ? `${mapping.source.frameworkChannel}:${mapping.source.data1}` : '')) : null,
       preferredControlKind: mapping.preferredControlKind || (mapping.controlType === 'button' ? 'button' : mapping.source?.controlKind || 'knob'),
+      visualControlId: mapping.visualControlId || null,
+      visualControlKind: mapping.visualControlKind || null,
+      visualControlLabel: mapping.visualControlLabel || null,
       targetType: 'ableton_device_parameter',
       targetDeviceName: device.deviceName,
       targetDeviceAliases: unique([device.deviceName, device.deviceClassName, ...(mapping.targetDeviceAliases || [])]),
@@ -74,8 +78,8 @@ function buildPythonMappings(profile) {
     .join(',\n')
 }
 
-export function generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName, layoutStack = [], controlPool = [], mappingWarnings = [] }) {
-  const profile = createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName, layoutStack, controlPool, mappingWarnings })
+export function generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName, layoutStack = [], controlPool = [], customLayouts = [], mappingWarnings = [] }) {
+  const profile = createAbletonDeviceProfile({ device, mappings, scriptDisplayName, controllerName, layoutStack, controlPool, customLayouts, mappingWarnings })
   const { scriptSlug, pythonClassName } = profile
   const buildId = createBuildId(profile)
   const initPy = `from .${scriptSlug} import ${pythonClassName}\n\n\ndef create_instance(c_instance):\n    return ${pythonClassName}(c_instance)\n`

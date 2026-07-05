@@ -159,7 +159,10 @@ export function detectMappingWarnings(mappings, device) {
       if (!mapping.buttonMode) warnings.push({ type: 'button_mode_missing', mappingIds: [mapping.id], message: `Button mode missing: ${mapping.userLabel || mapping.id}` })
       if (parameter && !isButtonLikeParameter(parameter)) warnings.push({ type: 'button_target_not_switch', mappingIds: [mapping.id], message: `Button target does not look like a switch: ${parameter.name}` })
       if (mapping.buttonMode === 'trigger' && parameter && !isButtonLikeParameter(parameter)) warnings.push({ type: 'trigger_on_continuous_parameter', mappingIds: [mapping.id], message: `Trigger mode used on continuous parameter: ${parameter.name}` })
-    } else if (sourceKind === 'button') warnings.push({ type: 'continuous_assigned_to_button', mappingIds: [mapping.id], message: `Continuous mapping assigned to button: ${mapping.userLabel || mapping.id}` })
+    } else {
+      if (sourceKind === 'button') warnings.push({ type: 'continuous_assigned_to_button', mappingIds: [mapping.id], message: `Continuous mapping assigned to button: ${mapping.userLabel || mapping.id}` })
+      if (parameter && isButtonLikeParameter(parameter)) warnings.push({ type: 'continuous_target_switch', mappingIds: [mapping.id], message: `Continuous control assigned to switch-like parameter: ${parameter.name}` })
+    }
   }
   for (const [source, mappingIds] of sourceGroups) if (mappingIds.length > 1) {
     const isButton = mappings.some((mapping) => mappingIds.includes(mapping.id) && mapping.controlType === 'button')
@@ -180,12 +183,12 @@ export function getLayoutHealth(mappings, warnings) {
   }
 }
 
-export function createPortableProfile({ scriptName, targetDeviceKey, layoutStack, mappings, controlPool }) {
-  return { schemaVersion: '0.1', mapperType: 'ableton_device_builder', scriptName, targetDeviceKey, layoutStack, mappings, controlPool }
+export function createPortableProfile({ scriptName, targetDeviceKey, layoutStack, mappings, controlPool, customLayouts = [] }) {
+  return { schemaVersion: '0.1', mapperType: 'ableton_device_builder', scriptName, targetDeviceKey, layoutStack, mappings, controlPool, customLayouts }
 }
 
 export function parsePortableProfile(text) {
   const profile = typeof text === 'string' ? JSON.parse(text) : text
   if (!profile || !Array.isArray(profile.layoutStack) || !Array.isArray(profile.mappings) || !Array.isArray(profile.controlPool)) throw new Error('Invalid Ableton Device Mapper profile.')
-  return profile
+  return { ...profile, customLayouts: Array.isArray(profile.customLayouts) ? profile.customLayouts : [] }
 }

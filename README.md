@@ -52,6 +52,8 @@ flowchart LR
 - Duplicate-source, duplicate-parameter, unassigned, and fallback warnings
 - Browser-side profile JSON export/import
 - Linear inverted MIDI scaling
+- Live Custom Layout controls: knobs, faders, and buttons follow assigned MIDI values in real time
+- Persistent Normal / Terminal Edition interface switch with shared mappings and exports
 
 ## Layout Builder
 
@@ -80,7 +82,7 @@ Blank Custom 8
 + manual parameter assignment
 ```
 
-Use this when the device-specific layouts do not match the intended hardware workflow.
+Use this when the device-specific layouts do not match the intended hardware workflow. The Custom Layout page can be displayed as a hardware surface or as the ASCII Terminal Edition using the **UI · NORMAL / TERMINAL** switch. Changing style preserves the current layout, learned MIDI sources, parameter assignments, and export state.
 
 ## Quick Start
 
@@ -114,6 +116,14 @@ See [Ableton installation](docs/ABLETON_INSTALLATION.md).
 ## Choosing a native Ableton device
 
 Filter by instrument, audio effect, or MIDI effect, then search by visible device name. The generator stores both the visible name and Live class name. At runtime it searches the selected track first, then all tracks, returns, master, and nested racks.
+
+## Custom MIDI Layout Designer
+
+You can create your own controller layout by choosing how many faders, knobs, and buttons you want. The app generates a visual controller preview, lets you learn MIDI for each control, and maps each control to a native Ableton device parameter.
+
+For example, create **2 faders + 3 knobs + 1 button**. Each module appears on the virtual faceplate with its MIDI CC, target parameter, and warnings. Click a module to rename it, change its kind, learn or unassign MIDI, choose a target, configure button mode or scaling, or remove it. More controls can be added after creation.
+
+Custom layouts are stored as `controllerLayoutType: "custom_grid"` in Profile JSON. Importing the profile restores the faceplate, labels, assignments, button modes, scaling, Layout Stack, and MIDI Control Pool. Preset layouts remain available under the secondary **Preset Layouts / Advanced** tab.
 
 ## Mapping MIDI controls to device parameters
 

@@ -44,6 +44,8 @@ flowchart LR
 - Détection des sources/paramètres dupliqués et routes non assignées
 - Export/import du profil JSON dans le navigateur
 - Scaling MIDI linéaire inversé
+- Contrôles Custom Layout animés en temps réel par les valeurs MIDI assignées
+- Sélecteur persistant Normal / Terminal Edition partageant les mêmes mappings et exports
 
 ## Layout Builder
 
@@ -71,6 +73,8 @@ Le bouton **Auto-build best layout** construit cette combinaison automatiquement
 Blank Custom 8
 + assignation manuelle des paramètres
 ```
+
+La page Custom Layout peut afficher la surface hardware normale ou sa version ASCII avec le bouton **UI · NORMAL / TERMINAL**. Changer de style conserve le layout, les sources MIDI apprises, les paramètres assignés et l'état d'export.
 
 ## Démarrage rapide
 
@@ -100,6 +104,14 @@ Copier seulement `<scriptSlug>/` dans `~/Music/Ableton/User Library/Remote Scrip
 Filtrer par instrument, effet audio ou effet MIDI. Le script mémorise le nom visible et la classe Live, puis cherche sur la piste sélectionnée, toutes les pistes, les retours, Master et les racks imbriqués.
 
 Chaque paramètre est cherché par alias exact puis normalisé. Garder **Allow index fallback if name is missing** désactivé sauf nécessité explicite.
+
+## Custom MIDI Layout Designer
+
+Vous pouvez créer votre propre layout MIDI en choisissant le nombre de faders, knobs et boutons. L’application génère une visualisation du contrôleur, permet d’apprendre chaque contrôle MIDI, puis de le mapper vers les paramètres du device Ableton.
+
+Par exemple, créer **2 faders + 3 knobs + 1 bouton**. Chaque module apparaît sur la face avant virtuelle avec son CC MIDI, son paramètre cible et ses warnings. Un clic permet de le renommer, changer son type, apprendre ou retirer le MIDI, choisir sa cible, régler son mode bouton ou son scaling, et le supprimer. D’autres contrôles peuvent être ajoutés après la création.
+
+Les layouts custom sont stockés avec `controllerLayoutType: "custom_grid"` dans le Profile JSON. L’import restaure la visualisation, les labels, assignations, modes bouton, réglages de scaling, le Layout Stack et le MIDI Control Pool. Les presets restent disponibles dans l’onglet secondaire **Preset Layouts / Advanced**.
 
 ## Mappings de boutons
 

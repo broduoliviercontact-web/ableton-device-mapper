@@ -91,8 +91,8 @@ ${warningSection}
 `
 }
 
-export function buildAbletonDeviceMapperPack({ device, mappings, inputName, scriptDisplayName, layoutStack = [], controlPool = [], mappingWarnings = [] }) {
-  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName: inputName, layoutStack, controlPool, mappingWarnings })
+export function buildAbletonDeviceMapperPack({ device, mappings, inputName, scriptDisplayName, layoutStack = [], controlPool = [], customLayouts = [], mappingWarnings = [] }) {
+  const files = generateAbletonDeviceRemoteScriptFiles({ device, mappings, scriptDisplayName, controllerName: inputName, layoutStack, controlPool, customLayouts, mappingWarnings })
   const zip = new JSZip()
   const root = zip.folder('Ableton_Device_Mapper_Pack')
   const scriptFolder = root.folder(`1_COPY_THIS_FOLDER_TO_REMOTE_SCRIPTS/${files.scriptSlug}`)
